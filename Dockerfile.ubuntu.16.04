@@ -14,11 +14,12 @@ RUN apt-get update && \
  apt-get install libqrencode-dev -y && \
  apt-get install git -y && \
  apt-get install ca-certificates -y && \
- apt-get install unzip -y && \
- mkdir /src
+ apt-get install unzip -y
 
-COPY entrypoint.sh /src/entrypoint.sh
+COPY entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
 
 WORKDIR "/src"
 
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
