@@ -7,5 +7,6 @@ pwd
 ./autogen.sh
 ./configure
 make
+make release
 
 echo "========================= Done building yacoin"
