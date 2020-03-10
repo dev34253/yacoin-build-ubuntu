@@ -8,5 +8,3 @@ pwd
 ./configure
 make
 make release
-
-echo "========================= Done building yacoin"
