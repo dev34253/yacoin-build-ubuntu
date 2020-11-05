@@ -18,3 +18,7 @@ jobs:
         run: |
           docker build . --file Dockerfile.ubuntu.18.04 --tag dev34253/yacoin-build:ubuntu.18.04
           docker push dev34253/yacoin-build:ubuntu.18.04
+      - name: Build image for ubuntu 20.04
+        run: |
+          docker build . --file Dockerfile.ubuntu.20.04 --tag dev34253/yacoin-build:ubuntu.20.04
+          docker push dev34253/yacoin-build:ubuntu.20.04
