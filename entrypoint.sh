@@ -7,4 +7,6 @@ pwd
 ./autogen.sh
 ./configure
 make
+mkdir debug
+
 make release
