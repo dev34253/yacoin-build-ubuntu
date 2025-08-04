@@ -22,3 +22,7 @@ jobs:
         run: |
           docker build . --file Dockerfile.ubuntu.16.04 --tag dev34253/yacoin-build:ubuntu.16.04-1
           docker push dev34253/yacoin-build:ubuntu.16.04-1
+      - name: Build image for Windows
+        run: |
+          docker build . --file Dockerfile.windows --tag dev34253/yacoin-build:windows-1
+          docker push dev34253/yacoin-build:windows-1
