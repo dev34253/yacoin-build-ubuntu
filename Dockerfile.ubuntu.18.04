@@ -13,13 +13,8 @@ COPY entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh
 
-RUN useradd -m -s /bin/bash builder && \
-    echo 'builder:yacoin' | chpasswd
-
-RUN mkdir -p /src && chown builder:builder /src
+RUN mkdir -p /src
 
 WORKDIR "/src"
-
-USER builder
 
 ENTRYPOINT ["/entrypoint.sh"]
