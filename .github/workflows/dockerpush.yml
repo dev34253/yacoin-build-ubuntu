@@ -10,6 +10,10 @@ jobs:
       - uses: actions/checkout@v2
       - name: Log into registry
         run: echo "${{ secrets.DOCKER_PWD }}" | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+      - name: Build image for ubuntu 22.04
+        run: |
+          docker build . --file Dockerfile.ubuntu.22.04 --tag dev34253/yacoin-build:ubuntu.22.04-1
+          docker push dev34253/yacoin-build:ubuntu.22.04-1
       - name: Build image for ubuntu 20.04
         run: |
           docker build . --file Dockerfile.ubuntu.20.04 --tag dev34253/yacoin-build:ubuntu.20.04-1
