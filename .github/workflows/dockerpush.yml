@@ -30,3 +30,7 @@ jobs:
         run: |
           docker build . --file Dockerfile.windows --tag dev34253/yacoin-build:windows-1
           docker push dev34253/yacoin-build:windows-1
+      - name: Build image for MacOS
+        run: |
+          docker build . --file Dockerfile.macos --tag dev34253/yacoin-build:macos-1
+          docker push dev34253/yacoin-build:macos-1

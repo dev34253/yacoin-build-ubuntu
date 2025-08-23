@@ -1,0 +1,37 @@
+FROM ubuntu:18.04  
+ENV DEBIAN_FRONTEND=noninteractive
+ENV OSXCROSS_BASE=/osxbin
+
+RUN apt update && \
+    apt install -y \
+        build-essential bison flex autotools-dev \
+        automake pkg-config bsdmainutils  ca-certificates \
+        g++ gperf libtool libssl-dev libbz2-dev zlib1g-dev \
+        libtinfo-dev curl git python3 unzip patch wget \
+        qtbase5-dev qttools5-dev-tools qttools5-dev g++-multilib \
+        python3-setuptools python3-distutils python3-pip python-pip \
+        libcap-dev clang make libssl-dev liblzma-dev libxml2-dev \
+        cpio software-properties-common
+
+RUN wget https://apt.kitware.com/keys/kitware-archive-latest.asc && \
+    apt-key add kitware-archive-latest.asc && \
+    apt-add-repository 'https://apt.kitware.com/ubuntu/' && \
+    apt update && \
+    apt install -y cmake
+
+RUN mkdir $OSXCROSS_BASE && cd $OSXCROSS_BASE && \
+    git clone https://github.com/tpoechtrager/osxcross.git && \
+    cd osxcross/tarballs/ && \
+    wget https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX10.11.sdk.tar.xz && \
+    cd .. && \
+    UNATTENDED=1 OSX_VERSION_MIN=10.8 ./build.sh
+
+COPY entrypoint.windows.sh /entrypoint.windows.sh
+
+RUN chmod +x /entrypoint.windows.sh
+
+RUN mkdir -p /src
+
+WORKDIR "/src"
+
+ENTRYPOINT ["/entrypoint.windows.sh"]
