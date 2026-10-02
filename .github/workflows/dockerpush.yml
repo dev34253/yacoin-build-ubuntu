@@ -1,7 +1,11 @@
 name: Docker
 
+# Publish images only from master (pushes to other branches must not
+# overwrite published tags). Can also be started manually.
 on:
   push:
+    branches: [master]
+  workflow_dispatch:
 
 jobs:
   push:

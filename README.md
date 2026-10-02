@@ -39,4 +39,4 @@ The macOS build uses the osxcross toolchain to cross-compile from Ubuntu 18.04. 
 
 ## GitHub Actions
 
-The repository includes a GitHub Actions workflow (`dockerpush.yml`) that automatically builds and pushes Docker images for all supported platforms when changes are pushed to the repository.
+The repository includes a GitHub Actions workflow (`dockerpush.yml`) that builds and pushes the Docker images for all supported platforms when changes are pushed to `master` (or when started manually from the Actions tab). Pushes to other branches do not publish images.
