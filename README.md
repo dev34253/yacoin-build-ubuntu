@@ -9,6 +9,7 @@ This repository contains Docker configurations for building YaCoin on multiple p
 - `Dockerfile.ubuntu.18.04` - Ubuntu 18.04 build environment  
 - `Dockerfile.ubuntu.20.04` - Ubuntu 20.04 build environment
 - `Dockerfile.ubuntu.22.04` - Ubuntu 22.04 build environment
+- `Dockerfile.ubuntu.24.04-gcc11` - Ubuntu 24.04 build environment with GCC 11 pinned (same compiler as 22.04; needs a YaCoin source tree with the glibc 2.36/2.38 build fixes). Published as `dev34253/yacoin-build:ubuntu.24.04-gcc11-1`.
 
 ### Cross-Platform Builds
 - `Dockerfile.windows` - Windows cross-compilation environment
@@ -38,4 +39,4 @@ The macOS build uses the osxcross toolchain to cross-compile from Ubuntu 18.04. 
 
 ## GitHub Actions
 
-The repository includes a GitHub Actions workflow (`dockerpush.yml`) that automatically builds and pushes Docker images for all supported platforms when changes are pushed to the repository.
+The repository includes a GitHub Actions workflow (`dockerpush.yml`) that builds and pushes the Docker images for all supported platforms when changes are pushed to `master` (or when started manually from the Actions tab). Pushes to other branches do not publish images.
