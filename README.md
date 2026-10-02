@@ -9,6 +9,7 @@ This repository contains Docker configurations for building YaCoin on multiple p
 - `Dockerfile.ubuntu.18.04` - Ubuntu 18.04 build environment  
 - `Dockerfile.ubuntu.20.04` - Ubuntu 20.04 build environment
 - `Dockerfile.ubuntu.22.04` - Ubuntu 22.04 build environment
+- `Dockerfile.ubuntu.24.04` - Ubuntu 24.04 build environment
 
 ### Cross-Platform Builds
 - `Dockerfile.windows` - Windows cross-compilation environment
