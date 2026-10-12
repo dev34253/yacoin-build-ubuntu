@@ -33,11 +33,19 @@ die() { echo "error: $*" >&2; exit 1; }
 # CPUs available to this container: nproc, limited by a cgroup v2 CPU quota
 # (docker run --cpus), which nproc doesn't see.
 available_cpus() {
-    local n quota period
+    local n quota="" period="" cpus
     n=$(nproc)
-    if read -r quota period < /sys/fs/cgroup/cpu.max 2>/dev/null && [[ "$quota" != max ]]; then
-        quota=$(( (quota + period - 1) / period ))
-        (( quota >= 1 && quota < n )) && n=$quota
+    if [[ -r /sys/fs/cgroup/cpu.max ]]; then                      # cgroup v2
+        read -r quota period < /sys/fs/cgroup/cpu.max
+        [[ "$quota" == max ]] && quota=""
+    elif [[ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]]; then       # cgroup v1
+        quota=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+        period=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+        (( quota > 0 )) || quota=""
+    fi
+    if [[ -n "$quota" && "$period" -gt 0 ]]; then
+        cpus=$(( (quota + period - 1) / period ))
+        if (( cpus >= 1 && cpus < n )); then n=$cpus; fi
     fi
     echo "$n"
 }
@@ -79,13 +87,23 @@ git config --global --get-all safe.directory 2>/dev/null | grep -qx "$SRC" ||
 # image's build is linked against. (x86_64_linux_prefix is the depends make
 # variable for this host's install prefix.)
 depends_args=(-C depends -j"$JOBS" HOST="$HOST_TRIPLET")
+# depends keeps one cached tarball per package and deletes the others when it
+# caches a new one, so the release and test builds get separate cache dirs.
 if [[ "$MODE" == build ]]; then
     DEPENDS_PREFIX="$SRC/depends/$HOST_TRIPLET"
+    cache_kind=depends-built
 else
+    cache_kind=depends-built-tests
+    [[ -d "$CACHE" ]] || depends_args+=(BASE_CACHE="$SRC/build/docker-$IMAGE/depends-built")
     # A path component named "depends", so the coverage filter "*/depends/*"
     # removes these headers from reports.
     DEPENDS_PREFIX="$SRC/build/docker-$IMAGE/depends"
-    depends_args+=(NO_QT=1 x86_64_linux_prefix="$DEPENDS_PREFIX")
+    # Built packages contain their install prefix (.la and .pc files), but
+    # depends' package ids don't include it. A separate salt gives these
+    # packages their own ids, and so their own cache entries and work dirs.
+    salt="prefix:$DEPENDS_PREFIX"
+    depends_args+=(NO_QT=1 x86_64_linux_prefix="$DEPENDS_PREFIX"
+                   HOST_ID_SALT="$salt" BUILD_ID_SALT="$salt")
 fi
 
 # Optional caches, namespaced per image: depends packages are only keyed by
@@ -93,8 +111,8 @@ fi
 # compilers anyway. Source tarballs are hash-checked, so they are shared.
 if [[ -d "$CACHE" ]]; then
     echo "== Using cache in $CACHE/$IMAGE =="
-    mkdir -p "$CACHE/$IMAGE/depends-built" "$CACHE/depends-sources" "$CACHE/$IMAGE/ccache"
-    depends_args+=(BASE_CACHE="$CACHE/$IMAGE/depends-built" SOURCES_PATH="$CACHE/depends-sources")
+    mkdir -p "$CACHE/$IMAGE/$cache_kind" "$CACHE/depends-sources" "$CACHE/$IMAGE/ccache"
+    depends_args+=(BASE_CACHE="$CACHE/$IMAGE/$cache_kind" SOURCES_PATH="$CACHE/depends-sources")
     export CCACHE_DIR="$CACHE/$IMAGE/ccache"
 fi
 # depends builds its own ccache and configure uses it.
@@ -146,7 +164,8 @@ else
                 "$builddir/unit-test-logs" "$JOBS"
             ;;
         functional-tests)
-            make -C "$builddir" -j"$JOBS"
+            # The functional tests only run yacoind and yacoin-cli.
+            make -C "$builddir/src" -j"$JOBS" yacoind yacoin-cli
             # The runner reads ../config.ini relative to its own path.
             mkdir -p "$builddir/test/functional"
             ln -sf "$SRC/test/functional/test_runner.py" "$builddir/test/functional/test_runner.py"

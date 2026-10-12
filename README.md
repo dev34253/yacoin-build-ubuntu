@@ -61,9 +61,14 @@ docker run -v /path/to/yacoin:/src -v /path/to/cache:/cache dev34253/yacoin-buil
 - Run one container per source tree at a time: modes share the tree's
   `autogen.sh` output, and `build` configures it in place.
 - `JOBS` sets the parallelism (default: the CPUs available to the container,
-  including a `--cpus` limit), e.g. `-e JOBS=4`.
+  including a `--cpus` limit), e.g. `-e JOBS=4`. The `-1` images always used
+  4; on hosts with many cores but little memory, set `JOBS` to stay safe.
+- The test modes give their depends packages separate ids (`HOST_ID_SALT`),
+  because built packages contain their install prefix. So they never reuse
+  cache entries or work dirs of the release build, and vice versa.
 - If a directory is mounted at `/cache`, built depends packages, ccache data
-  (per image) and depends source tarballs (shared) are kept there between
+  (per image; separate for the release build and the test modes) and depends
+  source tarballs (shared) are kept there between
   runs. That saves the roughly 12 minutes of rebuilding depends. Use one
   container per image cache at a time. Cache statistics are printed at the
   end of every run, also when it fails.

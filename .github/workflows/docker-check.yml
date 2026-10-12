@@ -1,17 +1,34 @@
 name: Docker check
 
 # Builds the Linux images on pull requests without logging in or pushing, so
-# Dockerfile and entrypoint changes are checked before they are published by
-# dockerpush.yml on master.
+# Dockerfile, entrypoint and publish-workflow changes are checked before
+# dockerpush.yml publishes them on master.
 on:
   pull_request:
     paths:
       - 'Dockerfile.ubuntu.*'
       - 'entrypoint.sh'
       - '.github/workflows/docker-check.yml'
+      - '.github/workflows/dockerpush.yml'
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the entrypoint
+        run: |
+          bash -n entrypoint.sh
+          shellcheck --severity=warning entrypoint.sh
+      - name: Check the publish workflow
+        run: |
+          # Every image that is built must be pushed with the same tag.
+          built=$(grep -o 'docker build .*--tag [^ ]*' .github/workflows/dockerpush.yml | sed 's/.*--tag //' | sort)
+          pushed=$(grep -o 'docker push [^ ]*' .github/workflows/dockerpush.yml | sed 's/docker push //' | sort)
+          diff <(echo "$built") <(echo "$pushed")
+
   build:
+    needs: lint
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -19,10 +36,6 @@ jobs:
         image: [ubuntu.16.04, ubuntu.18.04, ubuntu.20.04, ubuntu.22.04, ubuntu.24.04-gcc11]
     steps:
       - uses: actions/checkout@v4
-      - name: Check the entrypoint
-        run: |
-          bash -n entrypoint.sh
-          shellcheck --severity=warning entrypoint.sh
       - name: Build image
         run: docker build . --file Dockerfile.${{ matrix.image }} --tag yacoin-build-check:${{ matrix.image }}
       - name: Smoke test
