@@ -1,0 +1,64 @@
+name: Docker check
+
+# Builds the Linux images on pull requests without logging in or pushing, so
+# Dockerfile, entrypoint and publish-workflow changes are checked before
+# dockerpush.yml publishes them on master.
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile.ubuntu.*'
+      - 'entrypoint.sh'
+      - '.github/workflows/docker-check.yml'
+      - '.github/workflows/dockerpush.yml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the entrypoint
+        run: |
+          bash -n entrypoint.sh
+          shellcheck --severity=warning entrypoint.sh
+      - name: Check the publish workflow
+        run: |
+          # Every image that is built must be pushed with the same tag.
+          built=$(grep -o 'docker build .*--tag [^ ]*' .github/workflows/dockerpush.yml | sed 's/.*--tag //' | sort)
+          pushed=$(grep -o 'docker push [^ ]*' .github/workflows/dockerpush.yml | sed 's/docker push //' | sort)
+          diff <(echo "$built") <(echo "$pushed")
+
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu.16.04, ubuntu.18.04, ubuntu.20.04, ubuntu.22.04, ubuntu.24.04-gcc11]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build . --file Dockerfile.${{ matrix.image }} --tag yacoin-build-check:${{ matrix.image }}
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint bash yacoin-build-check:${{ matrix.image }} -c '
+            set -e
+            test "$YACOIN_BUILD_IMAGE" = "${{ matrix.image }}"
+            bison --version | head -1
+            bash -n /entrypoint.sh
+            if [ "$YACOIN_BUILD_IMAGE" = ubuntu.22.04 ]; then lcov --version; fi'
+          # An unknown mode must be rejected before anything is built.
+          status=0
+          docker run --rm yacoin-build-check:${{ matrix.image }} no-such-mode || status=$?
+          test "$status" = 2
+          # The test modes must stop early, with a clear message, on a tree
+          # without the scripts and targets they need.
+          mkdir -p fake-src
+          printf 'all:\n' > fake-src/Makefile.am
+          for mode in unit-tests cov-unit; do
+            status=0
+            docker run --rm -v "$PWD/fake-src:/src" yacoin-build-check:${{ matrix.image }} "$mode" \
+              > out.txt 2>&1 || status=$?
+            cat out.txt
+            test "$status" = 1
+            grep -q 'error: ' out.txt
+          done
