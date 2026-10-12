@@ -1,19 +1,129 @@
 #!/bin/bash
+# Entrypoint of the Linux yacoin-build images.
+#
+# Usage (the YaCoin source tree is mounted at /src):
+#   docker run -v <yacoin>:/src [-v <cache>:/cache] [-e JOBS=n] IMAGE [MODE]
+#
+# Modes:
+#   build             release build (default): depends, configure with glibc
+#                     back-compat, make, make install into /src/release-root
+#   unit-tests        build test_bitcoin (mainnet consensus) and run all unit
+#                     test suites in parallel
+#   functional-tests  low-difficulty build, then the functional tests serially
+#   cov-unit          coverage build (--enable-lcov, -O0) and "make cov-unit";
+#                     needs lcov 1.x (Ubuntu 22.04 image only)
+#
+# The test modes build out of tree in /src/build/docker-<image>-<mode>, which
+# is recreated on every run. If a cache dir is mounted at /cache, depends
+# packages, depends sources and ccache data are kept there between runs, per
+# image (only one container per image should use the cache at a time).
+#
+# Environment: JOBS (default: number of CPUs), BUILDVERSION (passed through
+# to the version string). SRC_DIR and CACHE_DIR override /src and /cache.
+set -euo pipefail
 
-echo "== Building yacoin =="
-echo "Running in folder:"
-pwd
+MODE="${1:-build}"
+SRC="${SRC_DIR:-/src}"
+CACHE="${CACHE_DIR:-/cache}"
+IMAGE="${YACOIN_BUILD_IMAGE:-unknown}"
+JOBS="${JOBS:-$(nproc)}"
+HOST_TRIPLET=x86_64-pc-linux-gnu
+DEPENDS_PREFIX="$SRC/depends/$HOST_TRIPLET"
 
-# for genbuild.sh to run without errors on Ubuntu 20
-git config --global --add safe.directory /src
+die() { echo "error: $*" >&2; exit 1; }
+
+case "$MODE" in
+    build|unit-tests|functional-tests|cov-unit) ;;
+    *) echo "unknown mode '$MODE' (build, unit-tests, functional-tests, cov-unit)" >&2; exit 2 ;;
+esac
+[[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || die "JOBS must be a positive integer"
+
+cd "$SRC"
+echo "== yacoin-build ($IMAGE): $MODE in $SRC with $JOBS jobs =="
+
+# Checks before the long depends build.
+if [[ "$MODE" != build ]]; then
+    # Out-of-tree configure refuses a source tree that was configured in place.
+    [[ ! -f "$SRC/config.status" ]] ||
+        die "$SRC was configured in place (e.g. by the build mode); run 'make distclean' in it first"
+fi
+if [[ "$MODE" == unit-tests ]]; then
+    [[ -x contrib/devtools/run-unit-suites.sh ]] ||
+        die "this YaCoin tree has no contrib/devtools/run-unit-suites.sh (needs master after PR #114)"
+fi
+if [[ "$MODE" == cov-unit ]]; then
+    grep -q '^cov-unit:' Makefile.am ||
+        die "this YaCoin tree has no cov-unit target (needs master after PR #114)"
+    lcov --version 2>/dev/null | grep -q 'version 1\.' ||
+        die "cov-unit needs lcov 1.x; use the Ubuntu 22.04 image"
+fi
+
+# For genbuild.sh, which runs git on the mounted tree.
+git config --global --get-all safe.directory 2>/dev/null | grep -qx "$SRC" ||
+    git config --global --add safe.directory "$SRC"
+
+# Optional caches, namespaced per image: depends packages are only keyed by
+# compiler version strings, and ccache entries can't be shared across
+# compilers anyway. Source tarballs are hash-checked, so they are shared.
+depends_args=(-C depends -j"$JOBS" HOST="$HOST_TRIPLET")
+if [[ -d "$CACHE" ]]; then
+    echo "== Using cache in $CACHE/$IMAGE =="
+    mkdir -p "$CACHE/$IMAGE/depends-built" "$CACHE/depends-sources" "$CACHE/$IMAGE/ccache"
+    depends_args+=(BASE_CACHE="$CACHE/$IMAGE/depends-built" SOURCES_PATH="$CACHE/depends-sources")
+    export CCACHE_DIR="$CACHE/$IMAGE/ccache"
+fi
+# depends builds its own ccache and configure uses it.
+export CCACHE_BASEDIR="$SRC" CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-5G}"
 
 echo "== Building dependencies =="
-cd depends/
-make -j 4 HOST=x86_64-pc-linux-gnu
+# The depends packages run their own configure scripts; they must not read
+# the config.site meant for yacoind.
+env -u CONFIG_SITE make "${depends_args[@]}"
 
-echo "== Building yacoin =="
-cd ..
+echo "== Generating the build system =="
 ./autogen.sh
-CONFIG_SITE=$PWD/depends/x86_64-pc-linux-gnu/share/config.site ./configure --enable-glibc-back-compat --enable-reduce-exports LDFLAGS=-static-libstdc++ --prefix=/
-make -j 4
-make install DESTDIR=`pwd`/release-root
+
+# Exported so that configure re-runs started by make also find the depends.
+export CONFIG_SITE="$DEPENDS_PREFIX/share/config.site"
+
+if [[ "$MODE" == build ]]; then
+    echo "== Building yacoin =="
+    ./configure --enable-glibc-back-compat --enable-reduce-exports LDFLAGS=-static-libstdc++ --prefix=/
+    make -j"$JOBS"
+    make install DESTDIR="$SRC/release-root"
+else
+    builddir="$SRC/build/docker-$IMAGE-$MODE"
+    echo "== Configuring in $builddir =="
+    rm -rf "$builddir"; mkdir -p "$builddir"
+    flags=(--without-gui --disable-man --enable-ccache)
+    case "$MODE" in
+        unit-tests) flags+=("CXXFLAGS=-O1 -g" "CFLAGS=-O1 -g") ;;
+        functional-tests) flags+=(--enable-low-difficulty-for-development "CXXFLAGS=-O1 -g" "CFLAGS=-O1 -g") ;;
+        cov-unit) flags+=(--enable-lcov "CXXFLAGS=-O0 -g" "CFLAGS=-O0 -g") ;;
+    esac
+    (cd "$builddir" && "$SRC/configure" "${flags[@]}")
+    export TMPDIR="$builddir/test/tmp"; mkdir -p "$TMPDIR"
+    case "$MODE" in
+        unit-tests)
+            make -C "$builddir/src" -j"$JOBS" test/test_bitcoin
+            contrib/devtools/run-unit-suites.sh "$builddir/src/test/test_bitcoin" \
+                "$builddir/unit-test-logs" "$JOBS"
+            ;;
+        functional-tests)
+            make -C "$builddir" -j"$JOBS"
+            # The runner reads ../config.ini relative to its own path.
+            mkdir -p "$builddir/test/functional"
+            ln -sf "$SRC/test/functional/test_runner.py" "$builddir/test/functional/test_runner.py"
+            "$builddir/test/functional/test_runner.py" -j 1 --tmpdirprefix="$TMPDIR"
+            ;;
+        cov-unit)
+            make -C "$builddir" -j"$JOBS" COV_JOBS="$JOBS" cov-unit
+            echo "== Coverage report: $builddir/test_bitcoin.coverage/index.html =="
+            ;;
+    esac
+fi
+
+if [[ -n "${CCACHE_DIR:-}" && -x "$DEPENDS_PREFIX/native/bin/ccache" ]]; then
+    "$DEPENDS_PREFIX/native/bin/ccache" -s | grep -E 'cache hit|cache miss|cache size' || true
+fi
+echo "== Done ($MODE) =="

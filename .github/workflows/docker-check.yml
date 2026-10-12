@@ -1,0 +1,39 @@
+name: Docker check
+
+# Builds the Linux images on pull requests without logging in or pushing, so
+# Dockerfile and entrypoint changes are checked before they are published by
+# dockerpush.yml on master.
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile.ubuntu.*'
+      - 'entrypoint.sh'
+      - '.github/workflows/docker-check.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [ubuntu.16.04, ubuntu.18.04, ubuntu.20.04, ubuntu.22.04, ubuntu.24.04-gcc11]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the entrypoint
+        run: |
+          bash -n entrypoint.sh
+          shellcheck --severity=warning entrypoint.sh
+      - name: Build image
+        run: docker build . --file Dockerfile.${{ matrix.image }} --tag yacoin-build-check:${{ matrix.image }}
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint bash yacoin-build-check:${{ matrix.image }} -c '
+            set -e
+            test "$YACOIN_BUILD_IMAGE" = "${{ matrix.image }}"
+            bison --version | head -1
+            bash -n /entrypoint.sh
+            if [ "$YACOIN_BUILD_IMAGE" = ubuntu.22.04 ]; then lcov --version; fi'
+          # An unknown mode must be rejected before anything is built.
+          status=0
+          docker run --rm yacoin-build-check:${{ matrix.image }} no-such-mode || status=$?
+          test "$status" = 2

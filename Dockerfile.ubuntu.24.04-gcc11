@@ -10,11 +10,13 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Used by entrypoint.sh to keep caches and build dirs separate per image.
+ENV YACOIN_BUILD_IMAGE=ubuntu.24.04-gcc11
 
 # g++-multilib is left out on purpose: on 24.04 it pulls in GCC 13 multilib.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-      build-essential libtool autotools-dev automake pkg-config bsdmainutils \
+      build-essential libtool autotools-dev automake pkg-config bsdmainutils bison \
       curl git ca-certificates \
       python3 python3-setuptools gperf zip unzip \
       qtbase5-dev qttools5-dev-tools qttools5-dev \
