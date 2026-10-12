@@ -37,3 +37,15 @@ jobs:
           status=0
           docker run --rm yacoin-build-check:${{ matrix.image }} no-such-mode || status=$?
           test "$status" = 2
+          # The test modes must stop early, with a clear message, on a tree
+          # without the scripts and targets they need.
+          mkdir -p fake-src
+          printf 'all:\n' > fake-src/Makefile.am
+          for mode in unit-tests cov-unit; do
+            status=0
+            docker run --rm -v "$PWD/fake-src:/src" yacoin-build-check:${{ matrix.image }} "$mode" \
+              > out.txt 2>&1 || status=$?
+            cat out.txt
+            test "$status" = 1
+            grep -q 'error: ' out.txt
+          done

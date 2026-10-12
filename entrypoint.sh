@@ -13,7 +13,7 @@
 #   cov-unit          coverage build (--enable-lcov, -O0) and "make cov-unit";
 #                     needs lcov 1.x (Ubuntu 22.04 image only)
 #
-# The test modes build out of tree in /src/build/docker-<image>-<mode>, which
+# The test modes build out of tree in /src/build/docker-<image>/<mode>, which
 # is recreated on every run. If a cache dir is mounted at /cache, depends
 # packages, depends sources and ccache data are kept there between runs, per
 # image (only one container per image should use the cache at a time).
@@ -26,11 +26,22 @@ MODE="${1:-build}"
 SRC="${SRC_DIR:-/src}"
 CACHE="${CACHE_DIR:-/cache}"
 IMAGE="${YACOIN_BUILD_IMAGE:-unknown}"
-JOBS="${JOBS:-$(nproc)}"
 HOST_TRIPLET=x86_64-pc-linux-gnu
-DEPENDS_PREFIX="$SRC/depends/$HOST_TRIPLET"
 
 die() { echo "error: $*" >&2; exit 1; }
+
+# CPUs available to this container: nproc, limited by a cgroup v2 CPU quota
+# (docker run --cpus), which nproc doesn't see.
+available_cpus() {
+    local n quota period
+    n=$(nproc)
+    if read -r quota period < /sys/fs/cgroup/cpu.max 2>/dev/null && [[ "$quota" != max ]]; then
+        quota=$(( (quota + period - 1) / period ))
+        (( quota >= 1 && quota < n )) && n=$quota
+    fi
+    echo "$n"
+}
+JOBS="${JOBS:-$(available_cpus)}"
 
 case "$MODE" in
     build|unit-tests|functional-tests|cov-unit) ;;
@@ -62,10 +73,24 @@ fi
 git config --global --get-all safe.directory 2>/dev/null | grep -qx "$SRC" ||
     git config --global --add safe.directory "$SRC"
 
+# The release build installs depends into the tree's usual prefix, as before.
+# The test modes install a no-Qt depends into a prefix of their own, per
+# image, so they never replace the libraries a host build (dev.sh) or another
+# image's build is linked against. (x86_64_linux_prefix is the depends make
+# variable for this host's install prefix.)
+depends_args=(-C depends -j"$JOBS" HOST="$HOST_TRIPLET")
+if [[ "$MODE" == build ]]; then
+    DEPENDS_PREFIX="$SRC/depends/$HOST_TRIPLET"
+else
+    # A path component named "depends", so the coverage filter "*/depends/*"
+    # removes these headers from reports.
+    DEPENDS_PREFIX="$SRC/build/docker-$IMAGE/depends"
+    depends_args+=(NO_QT=1 x86_64_linux_prefix="$DEPENDS_PREFIX")
+fi
+
 # Optional caches, namespaced per image: depends packages are only keyed by
 # compiler version strings, and ccache entries can't be shared across
 # compilers anyway. Source tarballs are hash-checked, so they are shared.
-depends_args=(-C depends -j"$JOBS" HOST="$HOST_TRIPLET")
 if [[ -d "$CACHE" ]]; then
     echo "== Using cache in $CACHE/$IMAGE =="
     mkdir -p "$CACHE/$IMAGE/depends-built" "$CACHE/depends-sources" "$CACHE/$IMAGE/ccache"
@@ -74,6 +99,17 @@ if [[ -d "$CACHE" ]]; then
 fi
 # depends builds its own ccache and configure uses it.
 export CCACHE_BASEDIR="$SRC" CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-5G}"
+
+# Cache statistics on every exit, including failed runs, to show whether a
+# slow run used the cache.
+print_cache_stats() {
+    local status=$?
+    if [[ -n "${CCACHE_DIR:-}" && -x "$DEPENDS_PREFIX/native/bin/ccache" ]]; then
+        "$DEPENDS_PREFIX/native/bin/ccache" -s | grep -E 'cache hit|cache miss|cache size' || true
+    fi
+    (( status == 0 )) || echo "== Failed ($MODE, exit status $status) ==" >&2
+}
+trap print_cache_stats EXIT
 
 echo "== Building dependencies =="
 # The depends packages run their own configure scripts; they must not read
@@ -92,7 +128,7 @@ if [[ "$MODE" == build ]]; then
     make -j"$JOBS"
     make install DESTDIR="$SRC/release-root"
 else
-    builddir="$SRC/build/docker-$IMAGE-$MODE"
+    builddir="$SRC/build/docker-$IMAGE/$MODE"
     echo "== Configuring in $builddir =="
     rm -rf "$builddir"; mkdir -p "$builddir"
     flags=(--without-gui --disable-man --enable-ccache)
@@ -123,7 +159,4 @@ else
     esac
 fi
 
-if [[ -n "${CCACHE_DIR:-}" && -x "$DEPENDS_PREFIX/native/bin/ccache" ]]; then
-    "$DEPENDS_PREFIX/native/bin/ccache" -s | grep -E 'cache hit|cache miss|cache size' || true
-fi
 echo "== Done ($MODE) =="

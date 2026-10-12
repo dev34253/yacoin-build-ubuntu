@@ -52,13 +52,21 @@ docker run -v /path/to/yacoin:/src -v /path/to/cache:/cache dev34253/yacoin-buil
 
 - The test modes need a YaCoin tree that contains PR #114 (`contrib/devtools/`
   and the `cov-unit` target). They build out of tree in
-  `/src/build/docker-<image>-<mode>`, which is recreated on every run, and
+  `/src/build/docker-<image>/<mode>`, which is recreated on every run, and
   refuse a tree that was configured in place (run `make distclean` there).
-- `JOBS` sets the parallelism (default: number of CPUs), e.g. `-e JOBS=4`.
+- The test modes install depends without Qt into their own prefix,
+  `/src/build/docker-<image>/depends`, so they never replace the depends a
+  host build (`dev.sh`) or another image uses. The `build` mode installs into
+  the usual `/src/depends/x86_64-pc-linux-gnu`, as before.
+- Run one container per source tree at a time: modes share the tree's
+  `autogen.sh` output, and `build` configures it in place.
+- `JOBS` sets the parallelism (default: the CPUs available to the container,
+  including a `--cpus` limit), e.g. `-e JOBS=4`.
 - If a directory is mounted at `/cache`, built depends packages, ccache data
   (per image) and depends source tarballs (shared) are kept there between
   runs. That saves the roughly 12 minutes of rebuilding depends. Use one
-  container per image cache at a time.
+  container per image cache at a time. Cache statistics are printed at the
+  end of every run, also when it fails.
 - Files written to `/src` and `/cache` are owned by root.
 
 Image tags: the Linux images are published as `-2` (e.g. `ubuntu.22.04-2`);
