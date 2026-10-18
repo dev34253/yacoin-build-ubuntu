@@ -1,6 +1,7 @@
 FROM ubuntu:18.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV YACOIN_BUILD_IMAGE=macos
 
 # Install necessary packages for macOS cross-compilation
 RUN apt-get update && \

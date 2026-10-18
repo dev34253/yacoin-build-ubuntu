@@ -74,9 +74,23 @@ docker run -v /path/to/yacoin:/src -v /path/to/cache:/cache dev34253/yacoin-buil
   end of every run, also when it fails.
 - Files written to `/src` and `/cache` are owned by root.
 
-Image tags: the Linux images are published as `-2` (e.g. `ubuntu.22.04-2`);
-the `-1` images stay as they were, so existing CI jobs keep working until they
-switch. The Windows and macOS images are unchanged (`-1`).
+## Windows and macOS images, cache
+
+The cross images (`Dockerfile.windows`, `Dockerfile.macos`) do one thing, the
+release build (depends, configure, make, `make install` into
+`/src/release-root`), and take no mode argument. Like the Linux images, they
+keep built depends packages, depends source tarballs and ccache data in
+`/cache` if a directory is mounted there (under `/cache/windows` or
+`/cache/macos`), print the cache statistics at the end of every run, and stop
+at the first failing step. `JOBS` sets the parallelism (default 4).
+
+```bash
+docker run -v /path/to/yacoin:/src -v /path/to/cache:/cache dev34253/yacoin-build:windows-2
+```
+
+Image tags: the images are published as `-2` (e.g. `ubuntu.22.04-2`,
+`windows-2`, `macos-2`); the `-1` images stay as they were, so existing CI
+jobs keep working until they switch.
 
 Ubuntu 16.04 and 18.04 are end of life (and the Windows and macOS images are
 based on 18.04). They are still built, because the release matrix uses them;
