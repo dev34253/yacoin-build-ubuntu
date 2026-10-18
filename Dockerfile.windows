@@ -1,5 +1,6 @@
 FROM ubuntu:18.04  
 ENV DEBIAN_FRONTEND=noninteractive
+ENV YACOIN_BUILD_IMAGE=windows
 
 RUN apt-get update && \
     apt install -y build-essential libtool \
